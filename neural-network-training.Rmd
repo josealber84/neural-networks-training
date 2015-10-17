@@ -1,0 +1,159 @@
+---
+title: "Neural network training"
+author: "Jose Alberto Arcos"
+date: "17 de octubre de 2015"
+output: html_document
+---
+
+<br><br>
+
+Basic neural network use in R
+
+<br><br>
+
+The neuralnet package seems like a good place to start. There is a simple example [here](http://www.r-bloggers.com/using-neural-networks-for-credit-scoring-a-simple-example/). A more in-depth view of the package can be found in [this paper](http://journal.r-project.org/archive/2010-1/RJournal_2010-1_Guenther+Fritsch.pdf).
+
+The neuralnet package is able to create and train networks with more than one hidden layer, so it is perfect for the kind of problems I want to solve.
+
+<br><br>
+
+I will use the HairEyeColor dataset, which contains info about the frequency of hair and eye color combinations by sex.
+
+```{r}
+head(as.data.frame(HairEyeColor))
+```
+
+<br><br>
+
+First of all, let's re-structure and plot the data:
+
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+
+data <- as.data.frame(HairEyeColor)
+expanded.data <- data.frame("Hair" = character(), 
+                            "Eye" = character(), 
+                            "Sex" = character())
+
+for(i in 1:nrow(data)){
+category <- data_frame("Hair" = rep(data[i, 1], data[i, 4]),
+"Eye" = rep(data[i, 2], data[i, 4]),
+"Sex" = rep(data[i, 3], data[i, 4]))
+expanded.data %<>%
+rbind(category)
+}
+
+expanded.data %<>%
+    mutate(hair.black = as.numeric(Hair == "Black"),
+           hair.brown = as.numeric(Hair == "Brown"),
+           hair.red = as.numeric(Hair == "Red"),
+           hair.blond = as.numeric(Hair == "Blond"),
+           eyes.brown = as.numeric(Eye == "Brown"),
+           eyes.blue = as.numeric(Eye == "Blue"),
+           eyes.hazel = as.numeric(Eye == "Hazel"),
+           eyes.green = as.numeric(Eye == "Green"),
+           sex.male = as.numeric(Sex == "Male"),
+           sex.female = as.numeric(Sex == "Female"))
+
+# Plot data
+
+ggplot(data = as.data.frame(HairEyeColor)) +
+geom_jitter(mapping = aes(x = Hair, y = Eye, color = Sex, size = Freq),
+position = position_jitter(width = 0.1, height = 0.1),
+alpha = 0.8)
+```
+
+<br><br>
+
+Now, let's separate training and test sets. I want to predict the eye color of a person given the hair color and the sex.
+
+```{r}
+index.training <- sample(x = 1:nrow(expanded.data), size = 500, replace = FALSE)
+index.test <- !(1:nrow(expanded.data) %in% index.training)
+training <- expanded.data[index.training, ]
+test <- expanded.data[index.test, ]
+```
+
+<br><br>
+And train a neural network to solve the problem.
+
+```{r message=FALSE, warning=FALSE}
+library(neuralnet)
+
+nn.eyes.brown <- 
+    neuralnet(formula = eyes.brown ~ hair.black + hair.brown + hair.red + 
+                  hair.blond + sex.male + sex.female,
+              data = training,
+              hidden = 1,
+              lifesign = "full")
+nn.eyes.blue <- 
+    neuralnet(formula = eyes.blue ~ hair.black + hair.brown + hair.red + 
+                  hair.blond + sex.male + sex.female,
+              data = training,
+              hidden = 1,
+              lifesign = "full")
+nn.eyes.hazel <- 
+    neuralnet(formula = eyes.hazel ~ hair.black + hair.brown + hair.red + 
+                  hair.blond + sex.male + sex.female,
+              data = training,
+              hidden = 1,
+              lifesign = "full")
+nn.eyes.green <- 
+    neuralnet(formula = eyes.green ~ hair.black + hair.brown + hair.red + 
+                  hair.blond + sex.male + sex.female,
+              data = training,
+              hidden = 1,
+              lifesign = "full")
+
+```
+
+<br><br>
+Test prediction results:
+
+```{r}
+prediction.brown <- 
+    neuralnet::compute(nn.eyes.brown, 
+                       test %>% dplyr::select(hair.black, hair.brown, hair.red,
+                                           hair.blond, sex.male, sex.female))
+prediction.blue <- 
+    neuralnet::compute(nn.eyes.blue, 
+                       test %>% dplyr::select(hair.black, hair.brown, hair.red,
+                                       hair.blond, sex.male, sex.female))
+prediction.hazel <- 
+    neuralnet::compute(nn.eyes.hazel, 
+                       test %>% dplyr::select(hair.black, hair.brown, hair.red,
+                                       hair.blond, sex.male, sex.female))
+prediction.green <- 
+    neuralnet::compute(nn.eyes.green, 
+                       test %>% dplyr::select(hair.black, hair.brown, hair.red,
+                                       hair.blond, sex.male, sex.female))
+test$prediction.brown <- prediction.brown$net.result %>% round(2)
+test$prediction.blue <- prediction.blue$net.result %>% round(2)
+test$prediction.hazel <- prediction.hazel$net.result %>% round(2)
+test$prediction.green <- prediction.green$net.result %>% round(2)
+
+test %<>%
+    mutate(max.prediction.value = pmax(prediction.green, prediction.hazel, 
+                                      prediction.blue, prediction.brown)) %>%
+    mutate(prediction.eye = ifelse(prediction.blue == max.prediction.value,
+                                   yes = "Blue",
+                                   no = NA)) %>%
+    mutate(prediction.eye = ifelse(prediction.green == max.prediction.value,
+                                   yes = "Green",
+                                   no = prediction.eye)) %>%
+    mutate(prediction.eye = ifelse(prediction.brown == max.prediction.value,
+                                   yes = "Brown",
+                                   no = prediction.eye)) %>%
+    mutate(prediction.eye = ifelse(prediction.hazel == max.prediction.value,
+                                   yes = "Hazel",
+                                   no = prediction.eye))
+# Show results
+
+test %>% dplyr::select(Sex, Hair, Eye, prediction.eye, max.prediction.value)
+
+accuracy <- test$Eye == test$prediction.eye
+accuracy <- sum(accuracy) / length(accuracy)
+cat("accuracy = ", accuracy, fill = T)
+```
